@@ -173,6 +173,54 @@ app.post("/logout", (req, res) => {
   });
 });
 
+// Signup route
+app.post("/signup", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password)
+    return res.status(400).json({ message: "All fields are required" });
+
+  try {
+    // Check if user already exists
+    const existingUser = await db.query(
+      "SELECT * FROM users WHERE email=$1",
+      [email]
+    );
+
+    if (existingUser.rows.length > 0) {
+      const user = existingUser.rows[0];
+
+      // User exists with Google OAuth only
+      if (user.google_id && !user.password) {
+        return res.status(400).json({
+          message:
+            "You already signed up with Google. Please login using Google.",
+        });
+      }
+
+      // User exists with local signup already
+      return res.status(400).json({
+        message: "Email already registered. Please login.",
+      });
+    }
+
+    // Hash the password and insert new user
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const result = await db.query(
+      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email",
+      [name, email, hashedPassword]
+    );
+
+    return res.status(201).json({
+      message: "User created successfully",
+      user: result.rows[0],
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 // Protected route example
 app.get("/weather", (req, res) => {
   if (!req.isAuthenticated())
