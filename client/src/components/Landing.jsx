@@ -4,7 +4,10 @@ import { motion } from "framer-motion";
 
 const Landing = () => {
   return (
-    <div className="flex items-center justify-center p-4 h-[65vh] sm:mt-0 mt-8">
+    <div
+      className="flex items-center justify-center p-4 h-[65vh] sm:mt-0 mt-8"
+      id="my-container"
+    >
       <motion.div
         className="flex flex-col sm:flex-row items-center w-[90%] sm:w-[70%] gap-6"
         initial={{ opacity: 0, y: 40 }}

@@ -1,3 +1,9 @@
 @import "tailwindcss";
 
+@media (max-height: 770px) and (max-width: 670px){
+  #my-container {
+    margin-top: 7.5rem; 
+  }
+}
+
 
