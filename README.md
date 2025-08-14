@@ -3,7 +3,7 @@ WeatherNow
 
 A full-stack weather application that provides real-time weather data for any location using the OpenWeather API.
 
-🚀 Features
+## 🚀 Features
 
 Search weather by city name
 
@@ -15,7 +15,7 @@ Node.js + Express backend for API requests and database handling
 
 PostgreSQL for storing search history or user preferences
 
-🛠️ Tech Stack
+## 🛠️ Tech Stack
 
 Frontend: React, Tailwind CSS
 Backend: Node.js, Express
