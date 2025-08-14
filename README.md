@@ -5,15 +5,14 @@ A full-stack weather application that provides real-time weather data for any lo
 
 ## 🚀 Features
 
-Search weather by city name
+- Search weather by city name & ZIP Code
+- Real-time temperature, humidity, and condition updates
+- Responsive UI with React & Tailwind CSS
+- Secure login/signup using Google OAuth
 
-Real-time temperature, humidity, and condition updates
+- Node.js + Express backend for API requests and database handling
 
-Responsive UI with React & Tailwind CSS
-
-Node.js + Express backend for API requests and database handling
-
-PostgreSQL for storing search history or user preferences
+- PostgreSQL for storing login credentials
 
 ## 🛠️ Tech Stack
 
