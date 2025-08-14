@@ -11,6 +11,7 @@ import helmet from "helmet";
 
 dotenv.config();
 
+const { Pool } = pg;
 const db = new Pool({
   user: process.env.DB_USER,
   host: process.env.DB_HOST,
