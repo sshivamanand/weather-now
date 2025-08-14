@@ -1,7 +1,65 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
 function Signup() {
+  const [formData, setFormData] = useState({
+    name: "",
+    email: "",
+    password: "",
+  });
+  const [error, setError] = useState("");
+  const [successMessage, setSuccessMessage] = useState(""); // New state for success message
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  const handleChange = (e) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value,
+    });
+    // Clear any previous messages when user starts typing
+    setError("");
+    setSuccessMessage("");
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+    setSuccessMessage(""); // Clear previous success message
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_BACKEND_URL}/signup`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify(formData),
+        }
+      );
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Signup successful, set success message
+        setSuccessMessage("Signed up successfully!");
+        // Redirect to login after a short delay
+        setTimeout(() => {
+          navigate("/login");
+        }, 1000 * 1); // Redirect after 0.5 seconds
+      } else {
+        setError(data.message || "Signup failed");
+      }
+    } catch (err) {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="flex items-center justify-center h-[65vh]">
       <div className="w-[90%] sm:w-[400px] bg-white p-6 rounded-xl shadow-lg">
@@ -9,34 +67,73 @@ function Signup() {
           Sign Up
         </h1>
 
-        {/* Name Input */}
-        <input
-          type="text"
-          placeholder="Full Name"
-          className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
-        />
+        {/* Display success message */}
+        {successMessage && (
+          <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
+            {successMessage}
+          </div>
+        )}
 
-        {/* Email Input */}
-        <input
-          type="email"
-          placeholder="Email"
-          className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
-        />
+        {/* Display error message */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+            {error}
+          </div>
+        )}
 
-        {/* Password Input */}
-        <input
-          type="password"
-          placeholder="Password"
-          className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
-        />
+        <form onSubmit={handleSubmit}>
+          {/* Name Input */}
+          <input
+            type="text"
+            name="name"
+            value={formData.name}
+            onChange={handleChange}
+            placeholder="Full Name"
+            required
+            className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
+          />
 
-        {/* Sign Up Button */}
-        <button className="w-full px-4 py-2 mb-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition duration-200">
-          Sign Up
-        </button>
+          {/* Email Input */}
+          <input
+            type="email"
+            name="email"
+            value={formData.email}
+            onChange={handleChange}
+            placeholder="Email"
+            required
+            className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
+          />
+
+          {/* Password Input */}
+          <input
+            type="password"
+            name="password"
+            value={formData.password}
+            onChange={handleChange}
+            placeholder="Password"
+            required
+            className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
+          />
+
+          {/* Sign Up Button */}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full px-4 py-2 mb-4 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition duration-200 disabled:opacity-50"
+          >
+            {loading ? "Signing up..." : "Sign Up"}
+          </button>
+        </form>
 
         {/* Sign Up with Google */}
-        <button className="relative w-full px-4 py-2 mb-4 bg-white text-gray-700 border border-gray-300 rounded-lg font-semibold shadow-sm hover:bg-gray-100 transition duration-200 flex items-center justify-center">
+        <button
+          className="relative w-full px-4 py-2 mb-4 bg-white text-gray-700 border border-gray-300 rounded-lg font-semibold shadow-sm hover:bg-gray-100 transition duration-200 flex items-center justify-center"
+          onClick={() => {
+            window.location.href = `${
+              import.meta.env.VITE_BACKEND_URL
+            }/auth/google`;
+          }}
+        >
           <span className="absolute left-4 flex items-center">
             <svg
               xmlns="http://www.w3.org/2000/svg"

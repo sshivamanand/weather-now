@@ -9,7 +9,7 @@ function Header() {
           <img
             src="/assets/logo.png"
             alt="logo"
-            className="w-30 h-30 md:w-40 md:h-40"
+            className="w-20 h-20 md:w-30 md:h-30"
           />
         </Link>
 
