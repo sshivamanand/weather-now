@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { API_BASE_URL, apiRequest } from "../lib/api";
 
 function Signup() {
   const [formData, setFormData] = useState({
@@ -8,7 +9,7 @@ function Signup() {
     password: "",
   });
   const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState(""); // New state for success message
+  const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -17,7 +18,6 @@ function Signup() {
       ...formData,
       [e.target.name]: e.target.value,
     });
-    // Clear any previous messages when user starts typing
     setError("");
     setSuccessMessage("");
   };
@@ -26,35 +26,20 @@ function Signup() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setSuccessMessage(""); // Clear previous success message
+    setSuccessMessage("");
 
     try {
-      const response = await fetch(
-        `${import.meta.env.VITE_BACKEND_URL}/signup`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify(formData),
-        }
-      );
+      await apiRequest("/api/auth/signup", {
+        method: "POST",
+        body: formData,
+      });
 
-      const data = await response.json();
-
-      if (response.ok) {
-        // Signup successful, set success message
-        setSuccessMessage("Signed up successfully!");
-        // Redirect to login after a short delay
-        setTimeout(() => {
-          navigate("/login");
-        }, 1000 * 1); // Redirect after 0.5 seconds
-      } else {
-        setError(data.message || "Signup failed");
-      }
+      setSuccessMessage("Signed up and logged in successfully!");
+      setTimeout(() => {
+        navigate("/weather");
+      }, 700);
     } catch (err) {
-      setError("Network error. Please try again.");
+      setError(err.message || "Signup failed");
     } finally {
       setLoading(false);
     }
@@ -63,18 +48,14 @@ function Signup() {
   return (
     <div className="flex items-center justify-center h-[65vh]">
       <div className="w-[90%] sm:w-[400px] bg-white p-6 rounded-xl shadow-lg">
-        <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">
-          Sign Up
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Sign Up</h1>
 
-        {/* Display success message */}
         {successMessage && (
           <div className="mb-4 p-3 bg-green-100 border border-green-400 text-green-700 rounded">
             {successMessage}
           </div>
         )}
 
-        {/* Display error message */}
         {error && (
           <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
             {error}
@@ -82,7 +63,6 @@ function Signup() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {/* Name Input */}
           <input
             type="text"
             name="name"
@@ -93,7 +73,6 @@ function Signup() {
             className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
           />
 
-          {/* Email Input */}
           <input
             type="email"
             name="email"
@@ -104,18 +83,16 @@ function Signup() {
             className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
           />
 
-          {/* Password Input */}
           <input
             type="password"
             name="password"
             value={formData.password}
             onChange={handleChange}
-            placeholder="Password"
+            placeholder="Password (min 8 chars)"
             required
             className="w-full px-4 py-2 mb-4 border border-gray-300 rounded-lg focus:outline-none focus:border-orange-500"
           />
 
-          {/* Sign Up Button */}
           <button
             type="submit"
             disabled={loading}
@@ -125,22 +102,14 @@ function Signup() {
           </button>
         </form>
 
-        {/* Sign Up with Google */}
         <button
           className="relative w-full px-4 py-2 mb-4 bg-white text-gray-700 border border-gray-300 rounded-lg font-semibold shadow-sm hover:bg-gray-100 transition duration-200 flex items-center justify-center"
           onClick={() => {
-            window.location.href = `${
-              import.meta.env.VITE_BACKEND_URL
-            }/auth/google`;
+            window.location.assign(`${API_BASE_URL}/api/auth/google`);
           }}
         >
           <span className="absolute left-4 flex items-center">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              width="30"
-              height="30"
-              viewBox="0 0 48 48"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 48 48">
               <path
                 fill="#FFC107"
                 d="M43.611,20.083H42V20H24v8h11.303
@@ -187,7 +156,6 @@ function Signup() {
           Sign up with Google
         </button>
 
-        {/* Login Link */}
         <p className="text-center text-sm text-gray-600">
           Already have an account?{" "}
           <Link to="/login" className="text-orange-500 hover:underline">
