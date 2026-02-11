@@ -1,15 +1,17 @@
 import express from "express";
-import session from "express-session";
 import cors from "cors";
+import session from "express-session";
+import dotenv from "dotenv";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import { Strategy as GoogleStrategy } from "passport-google-oauth20";
 import bcrypt from "bcrypt";
 import pg from "pg";
-import dotenv from "dotenv";
-import helmet from "helmet";
 
 dotenv.config();
+
+const app = express();
+const PORT = Number(process.env.PORT || 5050);
 
 const { Pool } = pg;
 const db = new Pool({
@@ -17,40 +19,36 @@ const db = new Pool({
   host: process.env.DB_HOST,
   database: process.env.DB_NAME,
   password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-  ssl: { rejectUnauthorized: false } 
+  port: Number(process.env.DB_PORT || 5432),
+  ssl: process.env.DB_SSL === "true" ? { rejectUnauthorized: false } : false,
 });
 
-const app = express();
-const PORT = process.env.PORT || 5000;
-
-// Middleware
-app.use(
-  helmet({
-    crossOriginEmbedderPolicy: false,
-    contentSecurityPolicy: false, // you can configure CSP manually later
-  })
-);
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  ...(process.env.FRONTEND_URLS || "").split(",").map((x) => x.trim()),
+].filter(Boolean);
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL, // React dev server
-    credentials: true, // allow cookies
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
   })
 );
 app.use(express.json());
 
-app.set("trust proxy", 1);
 app.use(
   session({
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || "secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: true, // false for local
       httpOnly: true,
-      sameSite: "none",
-      maxAge: 2 * 60 * 1000, 
+      secure: false,
+      sameSite: "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     },
   })
 );
@@ -58,190 +56,206 @@ app.use(
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Passport local strategy
+async function ensureUsersTable() {
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      password TEXT,
+      google_id TEXT UNIQUE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+}
+
+function userResponse(user) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    googleId: user.google_id || null,
+  };
+}
+
 passport.use(
-  new LocalStrategy(
-    { usernameField: "email" },
-    async (email, password, done) => {
-      try {
-        const res = await db.query("SELECT * FROM users WHERE email=$1", [
-          email,
-        ]);
-        if (res.rows.length === 0)
-          return done(null, false, { message: "Incorrect email" });
+  new LocalStrategy({ usernameField: "email" }, async (email, password, done) => {
+    try {
+      const cleanEmail = String(email).trim().toLowerCase();
+      const result = await db.query("SELECT * FROM users WHERE email = $1", [cleanEmail]);
 
-        const user = res.rows[0];
-        const match = await bcrypt.compare(password, user.password);
-        if (!match) return done(null, false, { message: "Incorrect password" });
-
-        return done(null, user);
-      } catch (err) {
-        return done(err);
+      if (result.rows.length === 0) {
+        return done(null, false, { message: "Invalid email or password" });
       }
+
+      const user = result.rows[0];
+      if (!user.password) {
+        return done(null, false, { message: "Use Google login for this account" });
+      }
+
+      const match = await bcrypt.compare(password, user.password);
+      if (!match) {
+        return done(null, false, { message: "Invalid email or password" });
+      }
+
+      return done(null, user);
+    } catch (err) {
+      return done(err);
     }
-  )
+  })
 );
 
 passport.serializeUser((user, done) => done(null, user.id));
 passport.deserializeUser(async (id, done) => {
   try {
-    const res = await db.query("SELECT * FROM users WHERE id=$1", [id]);
-    done(null, res.rows[0]);
+    const result = await db.query("SELECT * FROM users WHERE id = $1", [id]);
+    done(null, result.rows[0] || false);
   } catch (err) {
     done(err);
   }
 });
 
-// Google OAuth strategy
-passport.use(
-  new GoogleStrategy(
-    {
-      clientID: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: `${process.env.BACKEND_URL}/auth/google/callback`,
-    },
-    async (accessToken, refreshToken, profile, done) => {
-      try {
-        // Check by Google ID first
-        let res = await db.query("SELECT * FROM users WHERE google_id=$1", [
-          profile.id,
-        ]);
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+        callbackURL: `${process.env.BACKEND_URL}/api/auth/google/callback`,
+      },
+      async (_a, _r, profile, done) => {
+        try {
+          const googleId = profile.id;
+          const email = profile.emails?.[0]?.value?.toLowerCase();
+          const name = profile.displayName || "Google User";
 
-        if (res.rows.length > 0) {
-          return done(null, res.rows[0]);
-        }
+          if (!email) return done(new Error("Google email missing"));
 
-        // If not found, check if email already exists (manual signup before)
-        res = await db.query("SELECT * FROM users WHERE email=$1", [
-          profile.emails[0].value,
-        ]);
-
-        let user;
-        if (res.rows.length > 0) {
-          // Link existing account to Google ID
-          user = res.rows[0];
-          await db.query("UPDATE users SET google_id=$1 WHERE id=$2", [
-            profile.id,
-            user.id,
-          ]);
-          user.google_id = profile.id;
-        } else {
-          // New user — create account
-          const dummyPassword = await bcrypt.hash(
-            Math.random().toString(36),
-            10
+          const existing = await db.query(
+            "SELECT * FROM users WHERE google_id = $1 OR email = $2 LIMIT 1",
+            [googleId, email]
           );
-          const insertRes = await db.query(
-            "INSERT INTO users (name, email, google_id, password) VALUES ($1, $2, $3, $4) RETURNING *",
-            [
-              profile.displayName,
-              profile.emails[0].value,
-              profile.id,
-              dummyPassword,
-            ]
-          );
-          user = insertRes.rows[0];
-        }
 
-        return done(null, user);
-      } catch (err) {
-        return done(err, null);
+          if (existing.rows.length > 0) {
+            const user = existing.rows[0];
+            if (!user.google_id) {
+              const updated = await db.query(
+                "UPDATE users SET google_id = $1 WHERE id = $2 RETURNING *",
+                [googleId, user.id]
+              );
+              return done(null, updated.rows[0]);
+            }
+            return done(null, user);
+          }
+
+          const dummyPassword = await bcrypt.hash(`google-${Date.now()}`, 10);
+          const created = await db.query(
+            "INSERT INTO users (name, email, password, google_id) VALUES ($1, $2, $3, $4) RETURNING *",
+            [name, email, dummyPassword, googleId]
+          );
+          return done(null, created.rows[0]);
+        } catch (err) {
+          return done(err);
+        }
       }
-    }
-  )
-);
+    )
+  );
+}
 
-// Login
-app.post("/login", (req, res, next) => {
-  passport.authenticate("local", (err, user, info) => {
-    if (err) return next(err);
-    if (!user) return res.status(400).json({ message: info.message });
+function requireAuth(req, res, next) {
+  if (req.isAuthenticated && req.isAuthenticated()) return next();
+  return res.status(401).json({ message: "Not authenticated" });
+}
 
-    req.logIn(user, (err) => {
-      if (err) return next(err);
-      return res.json({
-        message: "Logged in successfully",
-        user: { id: user.id, name: user.name, email: user.email },
-      });
-    });
-  })(req, res, next);
+app.get("/api/auth/me", (req, res) => {
+  if (!req.isAuthenticated || !req.isAuthenticated()) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+  return res.json({ user: userResponse(req.user) });
 });
 
-// Logout
-app.post("/logout", (req, res) => {
-  req.logout(() => {
-    res.json({ message: "Logged out" });
-  });
-});
-
-// Signup route
-app.post("/signup", async (req, res) => {
-  const { name, email, password } = req.body;
-
-  if (!name || !email || !password)
+app.post("/api/auth/signup", async (req, res) => {
+  const { name, email, password } = req.body || {};
+  if (!name || !email || !password) {
     return res.status(400).json({ message: "All fields are required" });
+  }
+  if (String(password).length < 8) {
+    return res.status(400).json({ message: "Password must be at least 8 characters" });
+  }
 
   try {
-    // Check if user already exists
-    const existingUser = await db.query(
-      "SELECT * FROM users WHERE email=$1",
-      [email]
-    );
-
-    if (existingUser.rows.length > 0) {
-      const user = existingUser.rows[0];
-
-      // User exists with Google OAuth only
-      if (user.google_id && !user.password) {
-        return res.status(400).json({
-          message:
-            "You already signed up with Google. Please login using Google.",
-        });
-      }
-
-      // User exists with local signup already
-      return res.status(400).json({
-        message: "Email already registered. Please login.",
-      });
+    const cleanEmail = String(email).trim().toLowerCase();
+    const existing = await db.query("SELECT id FROM users WHERE email = $1", [cleanEmail]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ message: "Email already exists" });
     }
 
-    // Hash the password and insert new user
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await db.query(
-      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING id, name, email",
-      [name, email, hashedPassword]
+    const hashed = await bcrypt.hash(password, 10);
+    const created = await db.query(
+      "INSERT INTO users (name, email, password) VALUES ($1, $2, $3) RETURNING *",
+      [String(name).trim(), cleanEmail, hashed]
     );
 
-    return res.status(201).json({
-      message: "User created successfully",
-      user: result.rows[0],
+    req.logIn(created.rows[0], (err) => {
+      if (err) return res.status(500).json({ message: "Signup done but login failed" });
+      return res.status(201).json({ message: "Signup successful", user: userResponse(created.rows[0]) });
     });
-  } catch (err) {
-    console.error(err);
+  } catch {
     return res.status(500).json({ message: "Internal server error" });
   }
 });
 
-// Protected route example
-app.get("/weather", (req, res) => {
-  if (!req.isAuthenticated())
-    return res.status(401).json({ message: "Not authenticated" });
-  res.json({ message: `Welcome, ${req.user.name}`, user: req.user });
+app.post("/api/auth/login", (req, res, next) => {
+  passport.authenticate("local", (err, user, info) => {
+    if (err) return next(err);
+    if (!user) return res.status(401).json({ message: info?.message || "Login failed" });
+
+    req.logIn(user, (loginErr) => {
+      if (loginErr) return next(loginErr);
+      return res.json({ message: "Login successful", user: userResponse(user) });
+    });
+  })(req, res, next);
 });
 
-// Start Google OAuth login
-app.get(
-  "/auth/google",
-  passport.authenticate("google", { scope: ["profile", "email"] })
-);
+app.post("/api/auth/logout", (req, res) => {
+  req.logout((err) => {
+    if (err) return res.status(500).json({ message: "Logout failed" });
+    req.session.destroy(() => {
+      res.clearCookie("connect.sid");
+      return res.json({ message: "Logged out" });
+    });
+  });
+});
 
-// Google OAuth callback
+app.get("/api/auth/google", passport.authenticate("google", { scope: ["profile", "email"] }));
+
 app.get(
-  "/auth/google/callback",
-  passport.authenticate("google", { failureRedirect: "/login" }),
-  (req, res) => {
+  "/api/auth/google/callback",
+  passport.authenticate("google", { failureRedirect: `${process.env.FRONTEND_URL}/login` }),
+  (_req, res) => {
     res.redirect(`${process.env.FRONTEND_URL}/weather`);
   }
 );
 
-app.listen(PORT, () => {console.log("Server now live on PORT =", PORT)});
+app.get("/weather", requireAuth, (req, res) => {
+  return res.json({ user: userResponse(req.user) });
+});
+
+app.use((err, _req, res, _next) => {
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({ message: "CORS blocked" });
+  }
+  return res.status(500).json({ message: "Internal server error" });
+});
+
+(async () => {
+  try {
+    await ensureUsersTable();
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } catch (err) {
+    console.error("Startup failed", err);
+    process.exit(1);
+  }
+})();
